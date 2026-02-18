@@ -124,19 +124,20 @@ st.title("🚀 Gemini 驗證碼雲端訓練營")
 # (插入點 2) 🎛️ 5大精選模型選擇器 (含額度控管邏輯)
 # ==========================================
 raw_model_list = [
-    "gemini-2.0-flash-lite",    # 👑 (修正：目前公開版為 2.0-flash-lite 或 1.5-flash)
-    "gemini-1.5-flash",         # (平衡) 最穩定的付費主力
-    "gemini-2.0-flash",         # (預覽) 速度快但偶爾限流
-    "gemini-1.5-pro",           # (強大) 處理高難度圖
+    "gemini-2.5-flash-lite", # 👑 (預設) 最新輕量極速
+    "gemini-2.5-flash", # (平衡) 最新標準版
+    "gemini-2.0-flash", # (穩定) 額度高且穩定
+    "gemini-2.5-pro", # (強大) 處理高難度圖
+    "gemini-2.5-flash-image", # (專攻) 圖像優化版
 ]
 # 註：雖然您提供了 gemini-2.5 系列，但目前 Google API 穩定版主要是 1.5 與 2.0。
 # 為了避免 404 錯誤，我先幫您換成目前可用的真實模型 ID。
 # 如果您確定有 2.5 的存取權限，可以手動改回。
 
 def format_model_name(model_id):
-    if model_id == "gemini-1.5-flash": # 或 gemini-2.5-flash-lite
+    if model_id == "gemini-2.5-flash-lite": 
         prefix = "✨ (推薦/穩定) "
-    elif model_id == "gemini-1.5-pro":
+    elif model_id == "gemini-2.5-pro":
         prefix = "🧠 (高難度用) "
     else:
         prefix = ""
@@ -237,3 +238,4 @@ if st.session_state.current_result:
                             st.toast("修正並已上傳！")
                             st.session_state.current_result = None
                             st.rerun()
+
