@@ -82,7 +82,7 @@ GEMINI_API_KEY = "AIzaSy......"
 📜 免責聲明 (Disclaimer)
 本專案僅供技術研究與教育用途（AI 影像辨識測試），請勿用於非法破解或攻擊網站驗證機制。使用 Google Gemini API 時請遵守其 使用條款。
 
-Created by [您的名字/GitHub ID]
+Created by [jasanlin / jasanlin-arch]
 
 
 ### 💡 貼心小提醒：如何修改
