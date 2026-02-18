@@ -3,135 +3,113 @@ import google.generativeai as genai
 from PIL import Image
 import os
 
-# --- 頁面設定 ---
-st.set_page_config(page_title="Gemini 驗證碼破解神器", page_icon="⚡", layout="centered")
+# --- 1. 頁面與環境設定 ---
+st.set_page_config(page_title="Gemini 驗證碼進化版", page_icon="🧠", layout="centered")
 
-# --- 從 Streamlit Secrets 讀取 API Key ---
 try:
     api_key = st.secrets["GEMINI_API_KEY"]
 except:
     api_key = os.environ.get("GEMINI_API_KEY", "")
 
-# --- 初始化 Session State ---
-if 'stats' not in st.session_state: st.session_state.stats = {'total': 0, 'correct': 0}
-if 'history' not in st.session_state: st.session_state.history = []
-if 'last_processed_file' not in st.session_state: st.session_state.last_processed_file = None
-if 'current_result' not in st.session_state: st.session_state.current_result = None
-if 'is_rated' not in st.session_state: st.session_state.is_rated = False
-if 'quota_exceeded_models' not in st.session_state: st.session_state.quota_exceeded_models = set()
-
-# --- 主標題 ---
-st.title("⚡ Gemini 驗證碼破解神器 (Lite版)")
-
-# --- 檢查 API Key ---
 if not api_key:
-    st.warning("⚠️ 尚未設定 API Key！請在 Streamlit Cloud 的 Settings -> Secrets 設定 `GEMINI_API_KEY`。")
+    st.warning("⚠️ 請在 Secrets 設定 `GEMINI_API_KEY`。")
     st.stop()
 
 genai.configure(api_key=api_key)
 
-# ==========================================
-# 🎛️ 模型選擇器 (更新：2.5-flash-lite 為預設)
-# ==========================================
-raw_model_list = [
-    "gemini-2.5-flash-lite",    # 👑 (預設) 最新輕量極速版
-    "gemini-2.0-flash",         # (穩定) 舊版主力
-    "gemini-2.5-flash",         # (強大) 最新標準版
-    "gemini-2.0-flash-lite",    # (備用) 舊版輕量
-    "gemini-3-flash-preview",   # (測試) 每日限20次
-]
+# --- 2. 初始化 Session State ---
+if 'stats' not in st.session_state: 
+    st.session_state.stats = {'total': 0, 'correct': 0}
+if 'gold_standard' not in st.session_state: 
+    st.session_state.gold_standard = [] 
+if 'current_image' not in st.session_state: 
+    st.session_state.current_image = None
+if 'current_result' not in st.session_state: 
+    st.session_state.current_result = None
+if 'last_processed_file' not in st.session_state: 
+    st.session_state.last_processed_file = None
 
-def format_model_name(model_id):
-    # 如果是預設模型，加個標記讓它顯眼一點
-    if model_id == "gemini-2.5-flash-lite":
-        prefix = "✨ (預設) "
-    else:
-        prefix = ""
-        
-    if model_id in st.session_state.quota_exceeded_models:
-        return f"🚫 (額度已滿) {model_id}"
-        
-    return f"{prefix}{model_id}"
+# --- 3. 核心 Prompt 設定 ---
+def get_advanced_prompt():
+    return """
+你是一個精準的驗證碼辨識專家。請依照以下步驟處理圖片：
+1. **視覺分析**：簡要描述圖片中的文字顏色、有無扭曲以及背景干擾。
+2. **最終輸出**：排除干擾後，直接輸出辨識出的文字（含大小寫），嚴禁任何空格。
 
-# 這裡預設會選第一個 (index 0)，也就是 2.5-flash-lite
-selected_model = st.selectbox("🤖 選擇模型", raw_model_list, format_func=format_model_name)
+範例格式：
+[範例圖片] -> 描述：已校正範例。結果：A7b2
+"""
 
-st.divider()
+# --- 4. UI 介面 ---
+st.title("🚀 驗證碼 AI 進化實驗室")
+st.caption("手動校正功能已上線：您的回饋將成為 AI 的 Few-shot 教材")
 
-# ==========================================
-# 📊 數據儀表板
-# ==========================================
-col1, col2, col3 = st.columns(3)
-total = st.session_state.stats['total']
-correct = st.session_state.stats['correct']
-rate = (correct / total * 100) if total > 0 else 0.0
-col1.metric("測試總數", f"{total}")
-col2.metric("正確次數", f"{correct}")
-col3.metric("準確率", f"{rate:.1f}%")
+model_option = st.selectbox("選擇模型", ["gemini-2.5-flash-lite", "gemini-2.0-flash"])
 
-# ==========================================
-# 📂 上傳與辨識
-# ==========================================
-st.markdown("### 📂 上傳圖片 (自動辨識)")
-uploaded_file = st.file_uploader("拖曳圖片到這裡...", type=["png", "jpg", "jpeg"])
+# 能量條顯示範本收集進度
+st.progress(min(len(st.session_state.gold_standard) / 5, 1.0), 
+            text=f"教材庫已收集 {len(st.session_state.gold_standard)} 個範例")
+
+uploaded_file = st.file_uploader("上傳圖片", type=["png", "jpg", "jpeg"])
 
 if uploaded_file:
-    image = Image.open(uploaded_file)
-    st.image(image, caption="預覽圖片", width=200)
+    img = Image.open(uploaded_file)
+    st.session_state.current_image = img
+    st.image(img, caption="待辨識圖片", width=200)
 
     if uploaded_file.name != st.session_state.last_processed_file:
-        if selected_model in st.session_state.quota_exceeded_models:
-            st.error("🛑 此模型今日額度已滿，請切換！")
-        else:
-            with st.spinner(f"正在使用 {selected_model} 極速辨識中..."):
-                try:
-                    model = genai.GenerativeModel(selected_model)
-                    prompt = "這是一個驗證碼圖片。請忽略背景線條與噪點，直接輸出圖片中的文字（含大小寫英文與數字）。不要有空格，不要解釋。"
-                    
-                    response = model.generate_content([prompt, image])
-                    
-                    # --- 防崩潰檢查 ---
-                    if response.candidates and response.candidates[0].content.parts:
-                        result = response.text.strip()
-                    else:
-                        result = "⚠️ 無法辨識 (空回應)"
-                    # -----------------
-                    
-                    st.session_state.current_result = result
-                    st.session_state.last_processed_file = uploaded_file.name
-                    st.session_state.is_rated = False
+        with st.spinner("辨識中..."):
+            try:
+                model = genai.GenerativeModel(model_option)
+                content_payload = [get_advanced_prompt()]
+                # 注入金牌範例
+                for sample in st.session_state.gold_standard[-3:]:
+                    content_payload.extend([sample['image'], f"描述：已校正範例。結果：{sample['text']}"])
+                
+                content_payload.append(st.session_state.current_image)
+                response = model.generate_content(content_payload)
+                
+                if response.text:
+                    st.session_state.current_result = response.text.split("結果：")[-1].strip()
+                
+                st.session_state.last_processed_file = uploaded_file.name
+                st.rerun()
+            except Exception as e:
+                st.error(f"錯誤: {e}")
+
+# --- 5. 結果確認與「手動校正」機制 ---
+if st.session_state.current_result:
+    st.info(f"🤖 AI 辨識為：**{st.session_state.current_result}**")
+    
+    col1, col2 = st.columns(2)
+    
+    # 情況 A：AI 直接答對
+    if col1.button("✅ 答對了！(存入範本)", use_container_width=True):
+        st.session_state.gold_standard.append({'image': st.session_state.current_image, 'text': st.session_state.current_result})
+        st.session_state.stats['total'] += 1
+        st.session_state.stats['correct'] += 1
+        st.session_state.current_result = None
+        st.toast("AI 表現優異，已記錄範本！")
+        st.rerun()
+
+    # 情況 B：AI 答錯，需要人工校正
+    with col2:
+        with st.popover("❌ 答錯了 (手動校正)"):
+            manual_answer = st.text_input("請輸入正確答案：")
+            if st.button("送出正確答案"):
+                if manual_answer:
+                    # 將「正確答案」與「圖片」存入範本
+                    st.session_state.gold_standard.append({
+                        'image': st.session_state.current_image, 
+                        'text': manual_answer.strip()
+                    })
+                    st.session_state.stats['total'] += 1
+                    st.session_state.current_result = None
+                    st.success("校正成功！下次辨識會參考此範例。")
                     st.rerun()
-                    
-                except Exception as e:
-                    error_msg = str(e)
-                    if "429" in error_msg:
-                        st.session_state.quota_exceeded_models.add(selected_model)
-                        st.error(f"⚠️ 模型 `{selected_model}` 額度已滿！")
-                        st.rerun() # 自動刷新以更新選單狀態
-                    elif "404" in error_msg:
-                        st.error(f"❌ 找不到模型 {selected_model}，請切換。")
-                    else:
-                        st.error(f"發生錯誤: {e}")
 
-    if st.session_state.current_result:
-        st.success(f"🤖 辨識結果： **{st.session_state.current_result}**")
-
-        if not st.session_state.is_rated:
-            st.markdown("👇 **結果正確嗎？**")
-            b1, b2 = st.columns(2)
-            if b1.button("✅ 正確", use_container_width=True):
-                st.session_state.stats['total'] += 1
-                st.session_state.stats['correct'] += 1
-                st.session_state.history.insert(0, f"✅ [{selected_model}] {uploaded_file.name}: {st.session_state.current_result}")
-                st.session_state.is_rated = True
-                st.rerun()
-            if b2.button("❌ 錯誤", use_container_width=True):
-                st.session_state.stats['total'] += 1
-                st.session_state.history.insert(0, f"❌ [{selected_model}] {uploaded_file.name}: {st.session_state.current_result}")
-                st.session_state.is_rated = True
-                st.rerun()
-
-if st.session_state.history:
-    with st.expander("📜 最近紀錄"):
-        for h in st.session_state.history:
-            st.text(h)
+# 統計數據
+st.divider()
+total = st.session_state.stats['total']
+acc = (st.session_state.stats['correct'] / total * 100) if total > 0 else 0
+st.metric("當前準確率", f"{acc:.1f}%", delta=f"總測試數: {total}")
