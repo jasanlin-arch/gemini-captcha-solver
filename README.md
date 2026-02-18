@@ -1,91 +1,38 @@
-# 🚀 Gemini Captcha Solver (驗證碼 AI 破解神器)
+# 🚀 Gemini Captcha Labeler (驗證碼標註與訓練神器)
 
 [![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://streamlit.io)
-[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![SQLite](https://img.shields.io/badge/Database-SQLite-blue)](https://www.sqlite.org/)
 [![Gemini API](https://img.shields.io/badge/Google-Gemini%20API-orange)](https://ai.google.dev/)
 
-一個基於 **Google Gemini Vision API** 與 **Streamlit** 的智慧型驗證碼辨識工具。
-本專案不只是一個單純的辨識器，它具備 **「自我進化 (Self-Evolving)」** 機制——透過使用者的手動校正與正確回饋，動態建立 Few-shot 範本，讓 AI 越用越聰明！
+一個整合 **AI 辨識**、**人工標註** 與 **資料庫管理** 的全方位驗證碼工具。
+不僅能破解驗證碼，還能將您的修正紀錄自動存入 **SQLite** 資料庫，並作為 Few-shot 範本反哺給 AI，實現真正的「越用越聰明」。
 
 ## ✨ 核心功能 (Key Features)
 
-* **🧠 多模型支援**：自由切換 `Gemini 2.5 Flash-Lite` (極速/省錢) 與 `Gemini 2.0 Flash` (高精確)。
-* **📝 二階段推理 (CoT)**：採用「先視覺描述，後邏輯辨識」的 Prompt 策略，有效對抗噪點與扭曲背景。
-* **🎯 自動化 Few-shot 學習**：
-    * **即時回饋**：當你點擊「✅ 答對了」，該圖片自動成為下一次辨識的範本。
-    * **手動校正**：當 AI 答錯時，手動輸入正確答案，立即教會 AI 辨識該類型的驗證碼。
-* **📊 數據儀表板**：即時顯示測試總數與準確率統計。
-* **🔒 隱私安全**：使用 Gemini Paid Tier (或免費版) API，數據處理符合 Google 隱私規範。
+* **🧠 自我進化 AI**：自動從 SQLite 資料庫讀取最新的正確案例，動態生成 Few-shot Prompt，大幅提升辨識率。
+* **💾 本地資料庫 (SQLite)**：
+    * 每一筆「✅ 正確」或「❌ 修正」的紀錄（包含原始圖片 BLOB）都會被永久儲存。
+    * 支援數萬筆級別的標註資料管理。
+* **📥 數據匯出 (Export)**：
+    * **CSV / JSON** 一鍵下載功能。
+    * 方便將標註好的資料匯出，用於微調 (Fine-tuning) 其他模型。
+* **📝 二階段推理**：採用「視覺描述 -> 邏輯判斷」機制，對抗複雜干擾線。
 
-## 🛠️ 安裝與執行 (Installation)
+## 🛠️ 安裝與執行
 
-### 1. 複製專案
+### 1. 複製專案與安裝
 ```bash
 git clone [https://github.com/您的帳號/gemini-captcha-solver.git](https://github.com/您的帳號/gemini-captcha-solver.git)
 cd gemini-captcha-solver
-2. 安裝依賴套件
-Bash
 pip install -r requirements.txt
-注意： 請確保您的 requirements.txt 包含以下內容：
+2. 設定 API Key請在 .streamlit/secrets.toml 中設定：Ini, TOMLGEMINI_API_KEY = "您的API_KEY"
+3. 啟動Bashstreamlit run app.py
+啟動後，系統會自動在目錄下建立 captcha_learning.db 資料庫檔案。📂 資料庫結構 (Database Schema)本工具使用 records 資料表儲存所有紀錄：欄位名稱類型說明idINTEGER自動編號image_dataBLOB驗證碼原始圖片 (Binary)correct_textTEXT正確的驗證碼文字model_usedTEXT辨識時使用的模型timestampDATETIME建檔時間⚠️ Streamlit Cloud 部署注意事項若您部署於 Streamlit Cloud，由於雲端環境的暫存特性，SQLite 資料庫檔案可能會在應用程式重啟或休眠後重置。建議：請善用側邊欄的 「下載 CSV 報表」 功能，定期備份您的標註資料。🤝 貢獻歡迎提交 PR！[ ] 支援外部資料庫連接 (如 PostgreSQL / Google Sheets) 以解決雲端儲存問題。[ ] 增加圖表分析 (每日辨識率趨勢)。Powered by Google Gemini & Streamlit
+### 💡 重要提示：依賴套件更新
+由於我們引入了 `pandas` 來處理匯出功能，請記得更新您的 `requirements.txt`，確保包含以下內容：
 
-Plaintext
+```text
 streamlit
 google-generativeai
 Pillow
-3. 設定 API Key
-在專案根目錄建立 .streamlit/secrets.toml 檔案（如果是在本機執行）：
-
-Ini, TOML
-# .streamlit/secrets.toml
-GEMINI_API_KEY = "您的_GOOGLE_API_KEY"
-(或者是設定環境變數 GEMINI_API_KEY)
-
-4. 啟動應用程式
-Bash
-streamlit run app.py
-☁️ 部署到 Streamlit Cloud
-本專案已針對 Streamlit Cloud 最佳化，一鍵部署即可使用：
-
-將程式碼推送到 GitHub。
-
-登入 Streamlit Cloud 並連結您的 GitHub Repository。
-
-在部署設定的 Advanced Settings -> Secrets 區塊中，貼上您的 API Key：
-
-Ini, TOML
-GEMINI_API_KEY = "AIzaSy......"
-點擊 Deploy，完成！
-
-💡 使用指南 (Usage)
-上傳圖片：將驗證碼圖片拖曳至上傳區。
-
-等待辨識：AI 會分析圖片特徵（顏色、線條、文字）。
-
-給予回饋：
-
-如果 AI 答對：點擊 ✅ 答對了。這張圖會被存入暫存記憶，作為下次辨識的「金牌範本」。
-
-如果 AI 答錯：點擊 ❌ 答錯了，輸入正確文字並送出。AI 會立即學習這個案例。
-
-觀察進化：隨著您累積的範本越多（進度條增長），辨識準確率將顯著提升。
-
-🤝 貢獻 (Contributing)
-歡迎提交 Pull Request 或 Issue！
-目前的待辦事項 (To-Do)：
-
-[ ] 支援將範本庫匯出為 JSON/CSV。
-
-[ ] 串接 SQLite 資料庫以永久儲存學習紀錄。
-
-[ ] 增加批次上傳功能。
-
-📜 免責聲明 (Disclaimer)
-本專案僅供技術研究與教育用途（AI 影像辨識測試），請勿用於非法破解或攻擊網站驗證機制。使用 Google Gemini API 時請遵守其 使用條款。
-
-Created by [jasanlin / jasanlin-arch]
-
-
-### 💡 貼心小提醒：如何修改
-1.  **專案連結**：請將 `git clone` 指令中的 URL 換成您自己的 GitHub 網址。
-2.  **作者名稱**：文件最下方的 `[您的名字/GitHub ID]` 記得改成您的署名。
-3.  **截圖 (Optional)**：如果您行有餘力，可以在 `## ✨ 核心功能` 下方放一張程式執行的截圖
+pandas
