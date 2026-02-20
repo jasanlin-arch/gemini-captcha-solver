@@ -198,8 +198,28 @@ if uploaded_file:
             with st.spinner(f"正在使用 {selected_model} 思考中..."):
                 try:
                     model = genai.GenerativeModel(selected_model)
-                    prompt = "你是一個驗證碼辨識專家。\n1. 視覺分析：描述顏色、干擾線。\n2. 輸出：直接輸出文字，無空格。\n範例格式：[圖片] -> 描述：... 結果：A7b2"
+                    # --- 請找到這段並替換 ---
+                    # 舊的寫法：
+                    # prompt = "你是一個驗證碼辨識專家。\n1. 視覺分析：描述顏色、干擾線。\n2. 輸出：直接輸出文字，無空格。\n範例格式：[圖片] -> 描述：... 結果：A7b2"
                     
+                    # ✨ 新的寫法：依據模型動態切換最強 Prompt
+                    if selected_model == "gemini-2.5-flash-image":
+                        prompt = """你是一個專精於複雜 OCR 與機器視覺的影像模型。
+請對這張驗證碼執行像素級的深度掃描：
+1. 視覺分析：精確描述並在腦海中過濾掉背景雜訊（如干擾線條、隨機斑點、網格）。
+2. 字元定位：鎖定前景，由左至右獨立識別每個扭曲或重疊的字元邊緣。
+3. 輸出：直接輸出最終文字，嚴格區分大小寫，絕對不可有空格。
+範例格式：[圖片] -> 描述：... 結果：A7b2"""
+                    elif "pro" in selected_model:
+                        prompt = """你是一個具備強大邏輯推理能力的驗證碼專家。
+這張驗證碼極度扭曲且難以辨識。請先推論干擾線的走向，再根據剩餘的筆畫特徵，合理推斷出最可能的英數組合。
+範例格式：[圖片] -> 描述：... 結果：A7b2"""
+                    else:
+                        prompt = """你是一個驗證碼辨識專家。
+1. 視覺分析：簡述顏色與干擾線。
+2. 輸出：直接輸出文字，無空格。
+範例格式：[圖片] -> 描述：... 結果：A7b2"""
+# -------------------------
                     content_payload = [prompt]
                     for sample in gold_standard:
                         content_payload.extend([sample['image'], f"描述：雲端範例。結果：{sample['text']}"])
@@ -249,3 +269,4 @@ if st.session_state.current_result:
                             st.toast("修正並已上傳！")
                             st.session_state.current_result = None
                             st.rerun()
+
