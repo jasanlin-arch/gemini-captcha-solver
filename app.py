@@ -68,6 +68,7 @@ def base64_to_image(base64_str):
         return Image.open(io.BytesIO(img_data))
     except: return None
 
+# 寫入時包含 status 狀態紀錄
 def save_to_sheet(image, text, model, status):
     sheet = init_sheet()
     if not sheet: return False
@@ -103,7 +104,7 @@ if 'current_result' not in st.session_state: st.session_state.current_result = N
 if 'last_processed_file' not in st.session_state: st.session_state.last_processed_file = None
 if 'quota_exceeded_models' not in st.session_state: st.session_state.quota_exceeded_models = set()
 
-# --- 4. 側邊欄：雲端資料中心 ---
+# --- 4. 側邊欄：雲端資料中心 (AI 成長儀表板) ---
 with st.sidebar:
     st.header("☁️ Google Sheets 資料中心")
     sheet = init_sheet()
@@ -130,10 +131,13 @@ with st.sidebar:
                 progress_diff = recent_acc - overall_acc
                 c2.metric("近10筆準確率", f"{recent_acc:.1f}%", f"{progress_diff:.1f}%" if row_count >= 10 else None)
         except Exception as e:
-            st.warning("目前尚無足夠資料計算準確率，或欄位設定有誤。")
+            st.warning("目前尚無足夠資料計算準確率，或試算表 E 欄尚未補上 'status' 標題。")
             
         st.divider()
         st.caption(f"連結至試算表: `{SHEET_NAME}`")
+        if st.button("🔄 清除當前對話工作階段數據"):
+            st.session_state.stats = {'total': 0, 'correct': 0}
+            st.rerun()
     else:
         st.error("無法連接雲端資料庫")
 
@@ -152,15 +156,15 @@ raw_model_list = [
 ]
 
 def format_model_name(model_id):
-    # 標記預設模型
     if model_id == "gemini-2.5-flash-lite":
         prefix = "✨ (預設/極速) "
     elif model_id == "gemini-2.5-pro":
         prefix = "🧠 (高難度用) "
+    elif model_id == "gemini-2.5-flash-image":
+        prefix = "👁️ (影像專攻) "
     else:
         prefix = ""
         
-    # 標記額度已滿
     if model_id in st.session_state.quota_exceeded_models:
         return f"🚫 (額度已滿) {model_id}"
         
@@ -179,11 +183,27 @@ col3.metric("當前對話準確率", f"{rate:.1f}%")
 st.divider()
 
 # --- 6. 辨識與 Few-shot 邏輯 ---
-with st.spinner(f"正在使用 {selected_model} 思考中..."):
+with st.spinner("正在從 Google Sheets 下載最新教材..."):
+    gold_standard = load_gold_standard(limit=3)
+
+st.progress(min(len(gold_standard) / 3, 1.0), text=f"已載入 {len(gold_standard)}/3 個雲端範本")
+
+uploaded_file = st.file_uploader("上傳圖片", type=["png", "jpg", "jpeg"])
+
+if uploaded_file:
+    img = Image.open(uploaded_file)
+    st.session_state.current_image = img
+    st.image(img, caption="待辨識圖片", width=200)
+
+    if uploaded_file.name != st.session_state.last_processed_file:
+        if selected_model in st.session_state.quota_exceeded_models:
+            st.error(f"🛑 模型 {selected_model} 今日額度已滿，請切換其他模型！")
+        else:
+            with st.spinner(f"正在使用 {selected_model} 思考中..."):
                 try:
                     model = genai.GenerativeModel(selected_model)
                     
-                    # --- 1. 動態 Prompt 切換 ---
+                    # --- 動態 Prompt 切換機制 ---
                     if selected_model == "gemini-2.5-flash-image":
                         prompt = """你是一個專精於複雜 OCR 與機器視覺的影像模型。
 請對這張驗證碼執行像素級的深度掃描：
@@ -201,7 +221,6 @@ with st.spinner(f"正在使用 {selected_model} 思考中..."):
 2. 輸出：直接輸出文字，無空格。
 範例格式：[圖片] -> 描述：... 結果：A7b2"""
                     
-                    # --- 2. 組裝 Few-shot 教材 ---
                     content_payload = [prompt]
                     for sample in gold_standard:
                         content_payload.extend([sample['image'], f"描述：雲端範例。結果：{sample['text']}"])
@@ -210,7 +229,7 @@ with st.spinner(f"正在使用 {selected_model} 思考中..."):
                     
                     response = model.generate_content(content_payload)
                     
-                    # --- 3. 🛑 關鍵修正：空回應防呆機制 ---
+                    # --- 防空回應崩潰機制 ---
                     if response.candidates and response.candidates[0].content.parts:
                         raw_text = response.text
                         if "結果：" in raw_text:
@@ -219,7 +238,6 @@ with st.spinner(f"正在使用 {selected_model} 思考中..."):
                             st.session_state.current_result = raw_text.strip()
                     else:
                         st.session_state.current_result = "⚠️ 無法辨識 (AI 交了白卷)"
-                    # -----------------------------------------
                     
                     st.session_state.last_processed_file = uploaded_file.name
                     st.rerun()
@@ -235,9 +253,14 @@ with st.spinner(f"正在使用 {selected_model} 思考中..."):
 
 # --- 7. 結果與回饋 ---
 if st.session_state.current_result:
-    st.success(f"🤖 辨識結果：**{st.session_state.current_result}**")
+    # 根據是否為錯誤訊息改變顏色
+    if "⚠️" in st.session_state.current_result:
+        st.warning(f"🤖 辨識結果：**{st.session_state.current_result}**")
+    else:
+        st.success(f"🤖 辨識結果：**{st.session_state.current_result}**")
     
     c1, c2 = st.columns(2)
+    
     if c1.button("✅ 正確 (上傳雲端)", use_container_width=True):
         with st.spinner("正在寫入 Google Sheets..."):
             if save_to_sheet(st.session_state.current_image, st.session_state.current_result, selected_model, "AI答對"):
@@ -258,5 +281,3 @@ if st.session_state.current_result:
                             st.toast("修正並已上傳！")
                             st.session_state.current_result = None
                             st.rerun()
-
-
