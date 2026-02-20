@@ -179,47 +179,29 @@ col3.metric("當前對話準確率", f"{rate:.1f}%")
 st.divider()
 
 # --- 6. 辨識與 Few-shot 邏輯 ---
-with st.spinner("正在從 Google Sheets 下載最新教材..."):
-    gold_standard = load_gold_standard(limit=3)
-
-st.progress(min(len(gold_standard) / 3, 1.0), text=f"已載入 {len(gold_standard)}/3 個雲端範本")
-
-uploaded_file = st.file_uploader("上傳圖片", type=["png", "jpg", "jpeg"])
-
-if uploaded_file:
-    img = Image.open(uploaded_file)
-    st.session_state.current_image = img
-    st.image(img, caption="待辨識圖片", width=200)
-
-    if uploaded_file.name != st.session_state.last_processed_file:
-        if selected_model in st.session_state.quota_exceeded_models:
-            st.error(f"🛑 模型 {selected_model} 今日額度已滿，請切換其他模型！")
-        else:
-            with st.spinner(f"正在使用 {selected_model} 思考中..."):
+with st.spinner(f"正在使用 {selected_model} 思考中..."):
                 try:
                     model = genai.GenerativeModel(selected_model)
-                    # --- 請找到這段並替換 ---
-                    # 舊的寫法：
-                    # prompt = "你是一個驗證碼辨識專家。\n1. 視覺分析：描述顏色、干擾線。\n2. 輸出：直接輸出文字，無空格。\n範例格式：[圖片] -> 描述：... 結果：A7b2"
                     
-                    # ✨ 新的寫法：依據模型動態切換最強 Prompt
+                    # --- 1. 動態 Prompt 切換 ---
                     if selected_model == "gemini-2.5-flash-image":
                         prompt = """你是一個專精於複雜 OCR 與機器視覺的影像模型。
 請對這張驗證碼執行像素級的深度掃描：
-1. 視覺分析：精確描述並在腦海中過濾掉背景雜訊（如干擾線條、隨機斑點、網格）。
-2. 字元定位：鎖定前景，由左至右獨立識別每個扭曲或重疊的字元邊緣。
-3. 輸出：直接輸出最終文字，嚴格區分大小寫，絕對不可有空格。
+1. 視覺分析：精確描述並過濾掉背景雜訊（如干擾線條、網格）。
+2. 字元定位：鎖定前景，由左至右獨立識別每個字元。
+3. 輸出：直接輸出最終文字，嚴格區分大小寫，不可有空格。
 範例格式：[圖片] -> 描述：... 結果：A7b2"""
                     elif "pro" in selected_model:
                         prompt = """你是一個具備強大邏輯推理能力的驗證碼專家。
-這張驗證碼極度扭曲且難以辨識。請先推論干擾線的走向，再根據剩餘的筆畫特徵，合理推斷出最可能的英數組合。
+這張驗證碼極度扭曲。請先推論干擾線的走向，再根據剩餘筆畫特徵推斷出最可能的英數組合。
 範例格式：[圖片] -> 描述：... 結果：A7b2"""
                     else:
                         prompt = """你是一個驗證碼辨識專家。
 1. 視覺分析：簡述顏色與干擾線。
 2. 輸出：直接輸出文字，無空格。
 範例格式：[圖片] -> 描述：... 結果：A7b2"""
-# -------------------------
+                    
+                    # --- 2. 組裝 Few-shot 教材 ---
                     content_payload = [prompt]
                     for sample in gold_standard:
                         content_payload.extend([sample['image'], f"描述：雲端範例。結果：{sample['text']}"])
@@ -227,10 +209,17 @@ if uploaded_file:
                     content_payload.append(st.session_state.current_image)
                     
                     response = model.generate_content(content_payload)
-                    if response.text:
-                        st.session_state.current_result = response.text.split("結果：")[-1].strip()
+                    
+                    # --- 3. 🛑 關鍵修正：空回應防呆機制 ---
+                    if response.candidates and response.candidates[0].content.parts:
+                        raw_text = response.text
+                        if "結果：" in raw_text:
+                            st.session_state.current_result = raw_text.split("結果：")[-1].strip()
+                        else:
+                            st.session_state.current_result = raw_text.strip()
                     else:
-                        st.session_state.current_result = "⚠️ 無法辨識"
+                        st.session_state.current_result = "⚠️ 無法辨識 (AI 交了白卷)"
+                    # -----------------------------------------
                     
                     st.session_state.last_processed_file = uploaded_file.name
                     st.rerun()
@@ -269,4 +258,5 @@ if st.session_state.current_result:
                             st.toast("修正並已上傳！")
                             st.session_state.current_result = None
                             st.rerun()
+
 
