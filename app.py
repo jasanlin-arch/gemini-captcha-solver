@@ -16,6 +16,7 @@ try:
 except:
     api_key = os.environ.get("GEMINI_API_KEY", "")
 
+# --- 檢查 API Key ---
 if not api_key:
     st.warning("⚠️ 尚未設定 API Key！請在 Streamlit Cloud 的 Settings -> Secrets 設定 `GEMINI_API_KEY`。")
     st.stop()
@@ -42,7 +43,6 @@ def init_sheet():
     if not client: return None
     try:
         sheet = client.open(SHEET_NAME).sheet1
-        # 若是全新的空白試算表，自動建立 5 個標題欄位
         if not sheet.row_values(1):
             sheet.append_row(["timestamp", "model_used", "correct_text", "image_base64", "status"])
         return sheet
@@ -68,7 +68,6 @@ def base64_to_image(base64_str):
         return Image.open(io.BytesIO(img_data))
     except: return None
 
-# 核心修改點：寫入時加上 status 參數
 def save_to_sheet(image, text, model, status):
     sheet = init_sheet()
     if not sheet: return False
@@ -104,25 +103,21 @@ if 'current_result' not in st.session_state: st.session_state.current_result = N
 if 'last_processed_file' not in st.session_state: st.session_state.last_processed_file = None
 if 'quota_exceeded_models' not in st.session_state: st.session_state.quota_exceeded_models = set()
 
-# --- 4. 側邊欄：雲端資料中心 (AI 成長儀表板) ---
+# --- 4. 側邊欄：雲端資料中心 ---
 with st.sidebar:
     st.header("☁️ Google Sheets 資料中心")
     sheet = init_sheet()
     if sheet:
         try:
-            # 取得所有紀錄並轉為 DataFrame 進行運算
             all_records = sheet.get_all_records()
             df = pd.DataFrame(all_records)
             row_count = len(df)
             st.metric("雲端已標註樣本", row_count)
             
-            # 確保 'status' 欄位存在才進行計算
             if row_count > 0 and 'status' in df.columns:
-                # 總體準確率計算
                 total_ai_correct = len(df[df['status'] == 'AI答對'])
                 overall_acc = (total_ai_correct / row_count) * 100
                 
-                # 近 10 筆準確率計算
                 recent_10 = df.tail(10)
                 recent_correct = len(recent_10[recent_10['status'] == 'AI答對'])
                 recent_acc = (recent_correct / len(recent_10)) * 100 if len(recent_10) > 0 else 0
@@ -132,7 +127,6 @@ with st.sidebar:
                 c1, c2 = st.columns(2)
                 c1.metric("歷史總準確率", f"{overall_acc:.1f}%")
                 
-                # 計算進步幅度
                 progress_diff = recent_acc - overall_acc
                 c2.metric("近10筆準確率", f"{recent_acc:.1f}%", f"{progress_diff:.1f}%" if row_count >= 10 else None)
         except Exception as e:
@@ -146,24 +140,34 @@ with st.sidebar:
 # --- 5. 主介面邏輯 ---
 st.title("🚀 Gemini 驗證碼雲端訓練營")
 
+# ==========================================
+# 🎛️ 5大精選模型選擇器
+# ==========================================
 raw_model_list = [
-    "gemini-1.5-flash",
-    "gemini-2.0-flash",
-    "gemini-1.5-pro",
+    "gemini-2.5-flash-lite",    # 👑 (預設) 最新輕量極速
+    "gemini-2.5-flash",         # (平衡) 最新標準版
+    "gemini-2.0-flash",         # (穩定) 額度高且穩定
+    "gemini-2.5-pro",           # (強大) 處理高難度圖
+    "gemini-2.5-flash-image",   # (專攻) 圖像優化版
 ]
 
 def format_model_name(model_id):
-    if model_id == "gemini-1.5-flash": prefix = "✨ (推薦/穩定) "
-    elif "pro" in model_id: prefix = "🧠 (高難度用) "
-    else: prefix = ""
+    # 標記預設模型
+    if model_id == "gemini-2.5-flash-lite":
+        prefix = "✨ (預設/極速) "
+    elif model_id == "gemini-2.5-pro":
+        prefix = "🧠 (高難度用) "
+    else:
+        prefix = ""
         
+    # 標記額度已滿
     if model_id in st.session_state.quota_exceeded_models:
         return f"🚫 (額度已滿) {model_id}"
+        
     return f"{prefix}{model_id}"
 
 selected_model = st.selectbox("🤖 選擇模型", raw_model_list, format_func=format_model_name)
 
-# 單次工作階段的數據統計
 col1, col2, col3 = st.columns(3)
 total = st.session_state.stats['total']
 correct = st.session_state.stats['correct']
@@ -220,12 +224,11 @@ if uploaded_file:
                     else:
                         st.error(f"API 錯誤: {e}")
 
-# --- 7. 結果與回饋 (加入 status 紀錄) ---
+# --- 7. 結果與回饋 ---
 if st.session_state.current_result:
     st.success(f"🤖 辨識結果：**{st.session_state.current_result}**")
     
     c1, c2 = st.columns(2)
-    # 按鈕 A：AI 答對
     if c1.button("✅ 正確 (上傳雲端)", use_container_width=True):
         with st.spinner("正在寫入 Google Sheets..."):
             if save_to_sheet(st.session_state.current_image, st.session_state.current_result, selected_model, "AI答對"):
@@ -235,7 +238,6 @@ if st.session_state.current_result:
                 st.session_state.current_result = None
                 st.rerun()
 
-    # 按鈕 B：人工修正
     with c2:
         with st.popover("❌ 錯誤 (修正並上傳)"):
             manual_ans = st.text_input("輸入正確答案：")
